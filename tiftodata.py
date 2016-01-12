@@ -1,5 +1,6 @@
 from pathlib import Path
 import argparse
+from collections import OrderedDict
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -66,11 +67,11 @@ parser.add_argument('-u', '--upperthreshold', metavar='THRESHOLD',
 Set upper threshold for normalization, with the same format as '--threshold'.
 """)
 # TODO: add yellow upper threshold
-parser.add_argument('-b', '--binarize', action='store_true',
-    help="""
-Use a binary input for the cyan channel. That is, for all pixels
-in the cyan channel that are greater than the threshold, treat them all
-as fully white.""")
+# parser.add_argument('-b', '--binarize', action='store_true',
+#     help="""
+# Use a binary input for the cyan channel. That is, for all pixels
+# in the cyan channel that are greater than the threshold, treat them all
+# as fully white.""")
 parser.add_argument('--loghistogram', action='store_true',
     help="""Use a logarithmic scale for the histograms.""")
 
@@ -150,28 +151,42 @@ def renormalize_all(img_list, threshold=FloatOrPercent(0),
     
     def renorm(pt):
         return min(MAX_PIXEL, pt*MAX_PIXEL/maximum) if pt >= threshold else 0
-    return threshold, maximum, [im.point(renorm) for im in img_list]
-
-
-def binarize(img, threshold):
-    hist = img.histogram()
-    threshold = hist_to_threshold(hist, threshold)
     
-    def cur_binarize(pt):
+    def binarize(pt):
         return MAX_PIXEL if pt >= threshold else 0
-    
-    return threshold, [im.point(cur_binarize) for im in img_list]
+        
+    return (
+        threshold,
+        maximum,
+        [im.point(renorm) for im in img_list],
+        [im.point(binarize) for im in img_list]
+    )
 
-if args.binarize:
-    cyans_threshold, cyans = [binarize(img, args.threshold)
-        for img in cyans_unnormalized]
-    cyans_upper_threshold = MAX_PIXEL
-else:
-    cyans_threshold, cyans_upper_threshold, cyans = renormalize_all(
-        cyans_unnormalized, args.threshold, args.upperthreshold)
 
-yellows_threshold, yellows_upper_threshold, yellows = renormalize_all(
-    yellows_unnormalized, 0, args.upperthreshold)
+def to_arr_lists(img_list, thresh, upper_thresh):
+    thresh, upper_thresh, lst, bin_lst = renormalize_all(
+        img_list, thresh, upper_thresh)
+    arrs = np.asarray([np.asarray(im) for im in lst], dtype=float) / MAX_PIXEL
+    bins = np.asarray([np.asarray(im) > 0 for im in bin_lst], dtype=bool)
+    return thresh, upper_thresh, arrs, bins
+
+
+def arr_to_img(arr):
+    return Image.fromarray(np.uint8(arr * MAX_PIXEL))
+
+cyans_threshold, cyans_upper_threshold, cyans, cyans_bin = to_arr_lists(
+    cyans_unnormalized, args.threshold, args.upperthreshold)
+# cyans_threshold, cyans_upper_threshold, cyans, cyans_bin = renormalize_all(
+#     cyans_unnormalized, args.threshold, args.upperthreshold)
+# cyan_arrs = np.asarray([np.asarray(im) for im in cyans], dtype=float)
+# cyan_bins = np.asarray([np.asarray(im) > 0 for im in cyans_bin], dtype=bool)
+
+yellows_threshold, yellows_upper_threshold, yellows, yellows_bin = (
+    to_arr_lists(yellows_unnormalized, 0, args.upperthreshold))
+# yellows_threshold, yellows_upper_threshold, yellows, yellows_bin = (
+#     renormalize_all(yellows_unnormalized, 0, args.upperthreshold))
+# cyan_arrs = np.asarray([np.asarray(im) for im in cyans], dtype=float)
+# cyan_bins = np.asarray([np.asarray(im) > 0 for im in cyans_bin], dtype=bool)
 
 img_lists = (cyans, yellows)
 thresholds = cyans_threshold, yellows_threshold
@@ -183,7 +198,7 @@ for img_list, thresh, upper, name in zip(
     print("Using threshold %d and maximum %d for %s" %
         (thresh, upper, name.lower()))
     out_name = output_str(name.split(' ')[0].lower() + '0')
-    img_list[0].save(out_name)
+    arr_to_img(img_list[0]).save(out_name)
 
 fig, axs = plt.subplots(1, 2, figsize=(8, 3))
 (ax1, ax2) = axs
@@ -203,10 +218,43 @@ fig.tight_layout()
 fig.savefig(output_str('histogram'))
 plt.close(fig)
 
-areas = np.asarray([ImageStat.Stat(c).sum[0] / float(MAX_PIXEL) for c in cyans])
-multips = [ImageChops.multiply(c, y) for c, y in zip(cyans, yellows)]
-multips[0].save(output_str('multiplied'))
-multip_values = np.asarray([
-    ImageStat.Stat(i).sum[0] / float(MAX_PIXEL)
-    for i in multips])
-means = multip_values / areas
+areas = np.asarray([np.sum(c) for c in cyans])
+areas_bin = np.asarray([np.sum(c) for c in cyans_bin])
+multips = [c*y for c, y in zip(cyans, yellows)]
+arr_to_img(multips[0]).save(output_str('multiplied'))
+y_normed = np.asarray([np.sum(m) for m in multips]) / areas
+cyan_total = np.asarray([np.sum(c*b) for c, b in zip(cyans, cyans_bin)])
+cyan_mean = cyan_total / areas_bin
+yellow_total = np.asarray([np.sum(y*b) for y, b in zip(yellows, cyans_bin)])
+yellow_mean = cyan_total / areas_bin
+
+yellow_cyan = yellow_total / cyan_total
+frame_values_by_total = np.asarray([0] + [
+    np.mean(yellow_cyan[n:]) / np.mean(yellow_cyan[:n])
+    for n in range(1, len(yellow_cyan))
+])
+frame_values_by_norm = np.asarray([0] + [
+    np.mean(y_normed[n:]) / np.mean(y_normed[:n])
+    for n in range(1, len(yellow_cyan))
+])
+
+
+columns = [
+    ('Normalized Yellow', y_normed),
+    ('Normalized Area', areas),
+    ('Yellow Total', yellow_total),
+    ('Yellow Mean', yellow_mean),
+    ('Cyan Total', cyan_total),
+    ('Cyan Mean', cyan_mean),
+    ('Relative Average Yellow / Cyan by Total', frame_values_by_total),
+    ('Relative Average Yellow / Cyan by Norm', frame_values_by_norm),
+]
+
+headers, rows = zip(*columns)
+headerrow = ','.join(headers)
+
+csvname = output_str('', extension='.csv')
+# Columns wanted were:
+# yellow total, cyan total, yellow/cyan, area
+np.savetxt(csvname, np.asarray(rows).T,
+    delimiter=',', header=headerrow, fmt='%.6f')
