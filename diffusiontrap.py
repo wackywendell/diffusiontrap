@@ -114,8 +114,8 @@ except FileNotFoundError as e:
 except OSError as e:
     print(e)
     exit(3)
-if not img.mode == 'P':
-    print("Image type recognized, but not a 0-255 grayscale image.")
+if img.mode not in 'LP':
+    print("Image type %s recognized, but not a 0-255 grayscale image." % img.mode)
     print("Unsure how to proceed; exiting.")
     exit(1)
 MAX_PIXEL = 255
