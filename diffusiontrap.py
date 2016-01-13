@@ -197,8 +197,9 @@ for img_list, thresh, upper, name in zip(
         img_lists, thresholds, upper_thresholds, names):
     print("Using threshold %d and maximum %d for %s" %
         (thresh, upper, name.lower()))
-    out_name = output_str(name.split(' ')[0].lower() + '0')
-    arr_to_img(img_list[0]).save(out_name)
+    for n in (0, -1):
+        out_name = output_str(name.split(' ')[0].lower() + str(abs(n)))
+        arr_to_img(img_list[n]).save(out_name)
 
 fig, axs = plt.subplots(1, 2, figsize=(8, 3))
 (ax1, ax2) = axs
@@ -221,12 +222,13 @@ plt.close(fig)
 areas = np.asarray([np.sum(c) for c in cyans])
 areas_bin = np.asarray([np.sum(c) for c in cyans_bin])
 multips = [c*y for c, y in zip(cyans, yellows)]
-arr_to_img(multips[0]).save(output_str('multiplied'))
+arr_to_img(multips[0]).save(output_str('multiplied0'))
+arr_to_img(multips[-1]).save(output_str('multiplied1'))
 y_normed = np.asarray([np.sum(m) for m in multips]) / areas
 cyan_total = np.asarray([np.sum(c*b) for c, b in zip(cyans, cyans_bin)])
 cyan_mean = cyan_total / areas_bin
 yellow_total = np.asarray([np.sum(y*b) for y, b in zip(yellows, cyans_bin)])
-yellow_mean = cyan_total / areas_bin
+yellow_mean = yellow_total / areas_bin
 
 yellow_cyan = yellow_total / cyan_total
 frame_values_by_total = np.asarray([0] + [
@@ -238,14 +240,32 @@ frame_values_by_norm = np.asarray([0] + [
     for n in range(1, len(yellow_cyan))
 ])
 
+fig1, ax1 = plt.subplots(1, 1, figsize=(4, 3))
+fig2, ax2 = plt.subplots(1, 1, figsize=(4, 3))
+N_frames = len(yellow_cyan)
+frame_no = np.arange(N_frames) + 1
+ax1.plot(frame_no, yellow_cyan, color=Colors.red, linewidth=2)
+ax2.plot(frame_no, y_normed, color=Colors.red, linewidth=2)
+ax1.set_ylabel('Yellow / Cyan')
+ax2.set_ylabel('Normalized Yellow')
+
+for fig, ax, name in ((fig1, ax1, 'ycplot'), (fig2, ax2, 'normplot')):
+    ax.set_xlabel('Frame')
+    fig.tight_layout()
+    
+    fig.savefig(output_str(name))
+    plt.close(fig)
+
 
 columns = [
+    ('Frame', frame_no),
     ('Normalized Yellow', y_normed),
-    ('Normalized Area', areas),
     ('Yellow Total', yellow_total),
     ('Yellow Mean', yellow_mean),
     ('Cyan Total', cyan_total),
     ('Cyan Mean', cyan_mean),
+    ('Area', areas_bin),
+    ('Yellow / Cyan', yellow_cyan),
     ('Relative Average Yellow / Cyan by Total', frame_values_by_total),
     ('Relative Average Yellow / Cyan by Norm', frame_values_by_norm),
 ]
@@ -257,4 +277,4 @@ csvname = output_str('', extension='.csv')
 # Columns wanted were:
 # yellow total, cyan total, yellow/cyan, area
 np.savetxt(csvname, np.asarray(rows).T,
-    delimiter=',', header=headerrow, fmt='%.6f')
+    delimiter=',', header=headerrow, fmt='%.6g')
