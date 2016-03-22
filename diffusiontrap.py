@@ -1,44 +1,13 @@
 from pathlib import Path
 import argparse
-from collections import OrderedDict
 
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image, ImageChops, ImageStat
+from PIL import Image
+from util import to_list_func, FloatOrPercent, Colors, image_iter, renormalize_all, MAX_PIXEL
 
 parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-
-
-class FloatOrPercent:
-    def __init__(self, strng):
-        if isinstance(strng, str) and strng[-1] == '%':
-            self.value = float(strng[:-1]) / 100.0
-            self.type = '%'
-        else:
-            self.value = float(strng)
-            self.type = '#'
-    
-    def __str__(self):
-        if self.type == '#':
-            return str(self.value)
-        elif self.type == '%':
-            return str(self.value * 100.0) + '%'
-    
-    def __repr__(self):
-        if self.type == '#':
-            return str(self.value)
-        elif self.type == '%':
-            return str(self.value * 100.0) + '%'
-    
-    def __float__(self):
-        return self.value
-
-
-class Colors:
-    red, blue, green, purple, orange, brown, ppink, grey, yellow, black = (
-        '#E41A1C', '#377EB8', '#4DAF4A', '#984EA3', '#FF7F00',
-        '#A65628', '#F781BF', '#999999', '#FFFF33', '#000000')
 
 parser.add_argument("input",
     help="Input file. Should be a tif with a sequence of embedded images.",
@@ -54,7 +23,7 @@ parser.add_argument("--limits", default=None, metavar='UPPER,LEFT,LOWER,RIGHT',
     help="""Limits for cropping, from the upper left corner.
         Example: '--limit 192,224,320,288' for a box centered at (256,256) of
         width 128 and height 64. Leave blank for no cropping.""",
-    type=lambda s: [int(n) for n in s.strip().split(',')])
+    type=to_list_func(4, int))
 parser.add_argument('-t', '--threshold',
     type=FloatOrPercent, default=FloatOrPercent('99%'),
     help="""Set threshold for cyan. Value should either be in pixel value, e.g.
@@ -92,20 +61,6 @@ def output_str(name, base=args.output, extension=args.extension):
 # expand_thresh = 0.999
 
 
-def image_iter(img):
-    """
-    Given a PIL.Image with multiple embedded images, this iterates over them.
-    """
-    n = 0
-    while True:
-        try:
-            img.seek(n)
-        except EOFError:
-            img.seek(0)
-            raise StopIteration
-        yield img.copy()
-        n += 1
-
 try:
     img = Image.open(str(args.input))
 except FileNotFoundError as e:
@@ -118,7 +73,6 @@ if img.mode not in 'LP':
     print("Image type %s recognized, but not a 0-255 grayscale image." % img.mode)
     print("Unsure how to proceed; exiting.")
     exit(1)
-MAX_PIXEL = 255
 
 img_list = (
     list(image_iter(img))
@@ -131,36 +85,6 @@ hists = cyan_hist, yellow_hist = [
     np.sum([im.histogram() for im in img_list], axis=0)
     for img_list in (cyans_unnormalized, yellows_unnormalized)
 ]
-
-
-def hist_to_threshold(hist, threshold):
-    if not isinstance(threshold, FloatOrPercent) or threshold.type == '#':
-        return float(threshold)
-    ixs, = np.nonzero(np.cumsum(hist) / np.sum(hist) >= float(threshold))
-    return ixs[0]
-
-
-def renormalize_all(img_list, threshold=FloatOrPercent(0),
-        maximum=args.upperthreshold):
-    """
-    Renormalize an image set to go from (0-upper) to (0-MAX).
-    """
-    hist = np.sum([im.histogram() for im in img_list], axis=0)
-    threshold = hist_to_threshold(hist, threshold)
-    maximum = hist_to_threshold(hist, maximum)
-    
-    def renorm(pt):
-        return min(MAX_PIXEL, pt*MAX_PIXEL/maximum) if pt >= threshold else 0
-    
-    def binarize(pt):
-        return MAX_PIXEL if pt >= threshold else 0
-        
-    return (
-        threshold,
-        maximum,
-        [im.point(renorm) for im in img_list],
-        [im.point(binarize) for im in img_list]
-    )
 
 
 def to_arr_lists(img_list, thresh, upper_thresh):
