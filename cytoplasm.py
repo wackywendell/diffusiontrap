@@ -11,13 +11,13 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument("inputcytoplasm",
     help="Input cytoplasm file. Should be a tif.",
-    type=Path, metavar="<file>.tif")
+    type=Path, metavar="<cytoplasm_file>.tif")
 parser.add_argument("inputnucleus",
     help="Input nucleus file. Should be a tif.",
-    type=Path, metavar="<file>.tif")
+    type=Path, metavar="<nucleus_file>.tif")
 parser.add_argument("inputmeasure",
     help="Input measure file. Should be a tif.",
-    type=Path, metavar="<file>.tif")
+    type=Path, metavar="<measure_file>.tif")
 parser.add_argument("output", default=None,
     help="""Output file basename (without extension). Defaults to match input.
         Example: 'imgs/Jan01_2015_abc'
@@ -25,7 +25,7 @@ parser.add_argument("output", default=None,
     type=Path, metavar="<file>")
 parser.add_argument("-e", "--extension", default='pdf',
     help="Extension of image type to use for output images.")
-parser.add_argument("--limits", default=None, metavar='UPPER,LEFT,LOWER,RIGHT',
+parser.add_argument("--limits", default=None, metavar='UPPER_LEFT_LOWER_RIGHT',
     help="""Limits for cropping, from the upper left corner.
         Example: '--limit 192,224,320,288' for a box centered at (256,256) of
         width 128 and height 64. Leave blank for no cropping.""",
@@ -36,7 +36,7 @@ parser.add_argument('-t', '--thresholds',
     help="""Set three thresholds. Value should either be in pixel value, e.g.
         '20', or a percentage value, e.g. '99.9%%'. Percentage values will be
         applied to the histogram to extract a threshold. Use a comma to separate.
-        Example: -t 99%,10,99%""")
+        Example: -t 99%%,10%%,99%%""")
 parser.add_argument('-u', '--upperthresholds', metavar='THRESHOLD',
     type=to_list_func(3, FloatOrPercent),
     default=(FloatOrPercent('99.99%'), FloatOrPercent('99%'), FloatOrPercent('99.99%')),
@@ -135,6 +135,8 @@ for img_list, threshold, upper_threshold, name, ax in (
         np.ceil(bins[upper_thresh_ix])
     )
     
+    print(name, 'Threshold:', lower_thresh, 'Upper:', upper_thresh)
+    
     normed, binned = zip(*[renorm_bin(a, lower_thresh, upper_thresh) for a in arrs])
     normeds.append(np.asarray(normed))
     binneds.append(np.asarray(binned))
@@ -156,75 +158,67 @@ if args.pictures >= 1:
 
 cyto_norm, nuc_norm, measure_norm = normeds
 cyto_bin, nuc_bin, measure_bin = binneds
-just_cyto = cyto_norm * (1.0 - nuc_norm)
-just_cyto_bin = cyto_norm * (~nuc_bin)
-cyto_area = np.sum(np.sum(just_cyto, axis=2), axis=1)
-cyto_area_bin = np.sum(np.sum(just_cyto_bin, axis=2), axis=1)
-measured_cyto = measure_norm * just_cyto
-measured_cyto_bin = measure_norm * just_cyto_bin
-measured_nuc = measure_norm * nuc_norm
-measured_nuc_bin = measure_norm * nuc_bin
-measured_not_nuc = measure_norm * (1.0 - nuc_norm)
-measured_not_nuc_bin = measure_norm * (~nuc_bin)
+nuc_area = np.sum(np.sum(nuc_bin, axis=2), axis=1)
+cyto_area = np.sum(np.sum(cyto_bin, axis=2), axis=1)
+cyto_not_nuc_area = np.sum(np.sum(cyto_bin & (~nuc_bin), axis=2), axis=1)
+measure_area = np.sum(np.sum(measure_bin, axis=2), axis=1)
+measure_not_nuc_area = np.sum(np.sum(measure_bin & (~nuc_bin), axis=2), axis=1)
+
+measure_nuc = measure_norm
+measure_not_nuc = measure_norm * (~nuc_bin)
+measure_cyto_not_nuc = measure_norm * (cyto_bin & (~nuc_bin))
+
+measure_total = np.sum(np.sum(measure_norm, axis=2), axis=1)
+measure_nuc_total = np.sum(np.sum(measure_norm * nuc_bin, axis=2), axis=1)
+measure_not_nuc_total = np.sum(np.sum(measure_not_nuc, axis=2), axis=1)
+measure_cyto_not_nuc_total = np.sum(np.sum(measure_cyto_not_nuc, axis=2), axis=1)
 
 if args.pictures >= 1:
-    arr_to_img(measured_not_nuc_bin[0]).save(output_str('measure_not_nuc_bin0'))
+    arr_to_img(measure_norm[0]).save(output_str('measure_frame0'))
+    arr_to_img(measure_nuc[0]).save(output_str('measure_nuc_frame0'))
+    arr_to_img(measure_not_nuc[0]).save(output_str('measure_not_nuc_frame0'))
+    arr_to_img(measure_cyto_not_nuc[0]).save(output_str('measure_cyto_not_nuc_frame0'))
 if args.pictures >= 2:
-    arr_to_img(nuc_norm[0]).save(output_str('nucleus0'))
-    arr_to_img(cyto_norm[0]).save(output_str('cytoplasm0'))
-    arr_to_img(measure_norm[0]).save(output_str('measure0'))
-    arr_to_img(measured_nuc[0]).save(output_str('measure_nuc0'))
-    arr_to_img(measured_not_nuc[0]).save(output_str('measure_not_nuc0'))
-    arr_to_img(measured_nuc_bin[0]).save(output_str('measure_nuc_bin0'))
+    arr_to_img(measure_norm[-1]).save(output_str('measure_end'))
+    arr_to_img(measure_nuc[-1]).save(output_str('measure_nuc_end'))
+    arr_to_img(measure_not_nuc[-1]).save(output_str('measure_not_nuc_end'))
+    arr_to_img(measure_cyto_not_nuc[-1]).save(output_str('measure_cyto_not_nuc_end'))
 if args.pictures >= 3:
-    arr_to_img(measured_cyto[0]).save(output_str('measure_cyto0'))
-    arr_to_img(measured_cyto_bin[0]).save(output_str('measure_cyto_bin0'))
-    arr_to_img(just_cyto[0]).save(output_str('just_cytoplasm0'))
-    arr_to_img(just_cyto_bin[0]).save(output_str('just_cytoplasm_bin0'))
-    arr_to_img(nuc_norm[-1]).save(output_str('nucleus1'))
-    arr_to_img(cyto_norm[-1]).save(output_str('cytoplasm1'))
-    arr_to_img(measure_norm[-1]).save(output_str('measure1'))
-    arr_to_img(measure_bin[0]).save(output_str('measure_bin0'))
-    arr_to_img(measure_bin[-1]).save(output_str('measure_bin1'))
-    arr_to_img(just_cyto[-1]).save(output_str('just_cytoplasm1'))
-    arr_to_img(just_cyto_bin[-1]).save(output_str('just_cytoplasm_bin1'))
-    arr_to_img(measured_not_nuc_bin[-1]).save(output_str('measure_not_nuc_bin1'))
-    arr_to_img(measured_cyto[-1]).save(output_str('measure_cyto1'))
-    arr_to_img(measured_cyto_bin[-1]).save(output_str('measure_cyto_bin1'))
-    arr_to_img(measured_nuc[-1]).save(output_str('measure_nuc1'))
-    arr_to_img(measured_not_nuc[-1]).save(output_str('measure_not_nuc1'))
-    arr_to_img(measured_nuc_bin[-1]).save(output_str('measure_nuc_bin1'))
+    arr_to_img(nuc_bin[0]).save(output_str('nuc_bin_frame0'))
+    arr_to_img(cyto_bin[0]).save(output_str('cyto_bin_frame0'))
+    arr_to_img(measure_bin[0]).save(output_str('measure_bin_frame0'))
+    arr_to_img(nuc_bin[-1]).save(output_str('nuc_bin_end'))
+    arr_to_img(cyto_bin[-1]).save(output_str('cyto_bin_end'))
+    arr_to_img(measure_bin[-1]).save(output_str('measure_bin_end'))
 
-measured_nuc_sum = np.sum(np.sum(measured_nuc, axis=2), axis=1)
-measured_nuc_bin_sum = np.sum(np.sum(measured_nuc_bin, axis=2), axis=1)
-measured_not_nuc_sum = np.sum(np.sum(measured_not_nuc, axis=2), axis=1)
-measured_not_nuc_bin_sum = np.sum(np.sum(measured_not_nuc_bin, axis=2), axis=1)
-measured_cyto_sum = np.sum(np.sum(measured_cyto, axis=2), axis=1)
-measured_cyto_bin_sum = np.sum(np.sum(measured_cyto_bin, axis=2), axis=1)
-
-
-N_frames = len(measured_nuc_sum)
+N_frames = len(measure_total)
 frame_no = np.arange(N_frames) + 1
 
 if args.pictures >= 1:
     fig1, ax1 = plt.subplots(1, 1, figsize=(5, 4))
     fig2, ax2 = plt.subplots(1, 1, figsize=(5, 4))
     kw = dict(linewidth=2, marker='o')
-    ax1.plot(frame_no, measured_nuc_sum, color=Colors.orange, label='Nucleus', **kw)
-    ax1.plot(frame_no, measured_cyto_sum, color=Colors.purple, label='Cytoplasm', **kw)
-    ax1.plot(frame_no, measured_not_nuc_sum, 'o-', color=Colors.green, label='Not Nucleus', **kw)
-    ax2.plot(frame_no, measured_nuc_bin_sum, 'o-', color=Colors.orange, label='Nucleus', **kw)
-    ax2.plot(frame_no, measured_cyto_bin_sum, 'o-', color=Colors.purple, label='Cytoplasm', **kw)
-    ax2.plot(frame_no, measured_not_nuc_bin_sum, color=Colors.green, label='Not Nucleus', **kw)
+    ax1.plot(frame_no, measure_total, color=Colors.red, label='Total', **kw)
+    ax1.plot(frame_no, measure_nuc_total, color=Colors.green, label='Nucleus', **kw)
+    ax1.plot(frame_no, measure_not_nuc_total, color=Colors.purple, label='Not Nucleus', **kw)
+    ax1.plot(frame_no, measure_cyto_not_nuc_total,
+        color=Colors.orange, label='Cytoplasm, Not Nucleus', **kw)
+    
+    ax2.plot(frame_no, measure_area, 'o-', color=Colors.red, label='Total Measure', **kw)
+    ax2.plot(frame_no, nuc_area, color=Colors.green, label='Nucleus', **kw)
+    ax2.plot(frame_no, measure_not_nuc_area, color=Colors.purple,
+        label='Measure, Not Nucleus', **kw)
+    ax2.plot(frame_no, cyto_not_nuc_area, color=Colors.orange,
+        label='Cytoplasm, Not Nucleus', **kw)
 
     for fig, ax, title, name in (
-            (fig1, ax1, 'Areas Measured', 'norm'),
-            (fig2, ax2, 'Areas Measured (Binary)', 'binary')):
+            (fig1, ax1, 'Measure Total', 'measure'),
+            (fig2, ax2, 'Areas Measured', 'area')):
         ax.set_xlabel('Frame')
         ax.set_ylabel('Sums')
         ax.set_title(title)
         ax.set_ylim(0, None)
-        ax.legend(ncol=3, loc='lower center', fontsize='x-small',
+        ax.legend(ncol=2, loc='lower center', fontsize='x-small',
             framealpha=0.6, fancybox=True, frameon=True)
         fig.tight_layout()
         
@@ -234,12 +228,15 @@ if args.pictures >= 1:
 
 columns = [
     ('Frame', frame_no),
-    ('Nucleus', measured_nuc_sum),
-    ('Nucleus (Binary)', measured_nuc_bin_sum),
-    ('Cytoplasm', measured_cyto_sum),
-    ('Cytoplasm (Binary)', measured_cyto_bin_sum),
-    ('Not Nucleus', measured_not_nuc_sum),
-    ('Not Nucleus (Binary)', measured_not_nuc_bin_sum),
+    ('Nucleus Area', nuc_area),
+    ('Cytoplasm Area', cyto_area),
+    ('Measure Area', measure_area),
+    ('Cytoplasm Not Nucleus Area', cyto_not_nuc_area),
+    ('Measure minus Nucleus Area', measure_not_nuc_area),
+    ('Measure', measure_total),
+    ('Measure Nucleus', measure_nuc_total),
+    ('Measure Not Nucleus', measure_not_nuc_total),
+    ('Measure Cytoplasm Not Nucleus', measure_cyto_not_nuc_total),
 ]
 
 headers, rows = zip(*columns)
